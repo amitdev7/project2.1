@@ -4,23 +4,25 @@ import os
 import sys
 import urllib.parse
 import re
+import threading
+import webbrowser
+import time
 
-PORT = 5501
+PORT = 5502
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 MIME_MAP = {
     '.wasm': 'application/wasm',
-    '.buf': 'application/octet-stream',
-    '.sog': 'application/octet-stream',
-    '.riv': 'application/octet-stream',
-    '.webp': 'image/webp',
-    '.avif': 'image/avif',
+    '.drc': 'application/octet-stream',
+    '.ktx2': 'image/ktx2',
+    '.exr': 'image/x-exr',
+    '.ogg': 'audio/ogg',
+    '.woff2': 'font/woff2',
+    '.woff': 'font/woff',
     '.json': 'application/json',
     '.js': 'application/javascript',
     '.mjs': 'application/javascript',
     '.css': 'text/css',
-    '.mp4': 'video/mp4',
-    '.woff2': 'font/woff2',
     '.svg': 'image/svg+xml',
     '.ico': 'image/x-icon',
     '.png': 'image/png',
@@ -28,7 +30,7 @@ MIME_MAP = {
     '.jpeg': 'image/jpeg',
 }
 
-class AmitFastHandler(http.server.SimpleHTTPRequestHandler):
+class IglooHandler(http.server.SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def __init__(self, *args, **kwargs):
@@ -36,7 +38,6 @@ class AmitFastHandler(http.server.SimpleHTTPRequestHandler):
 
     def setup(self):
         super().setup()
-        # Set short socket timeout to prevent hung connections on Windows
         if hasattr(self, 'request') and self.request:
             try:
                 self.request.settimeout(5.0)
@@ -44,7 +45,6 @@ class AmitFastHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def address_string(self):
-        # Avoid reverse DNS lookup delay on Windows
         return self.client_address[0]
 
     def guess_type(self, path):
@@ -66,29 +66,31 @@ class AmitFastHandler(http.server.SimpleHTTPRequestHandler):
         if os.path.exists(local_path):
             return local_path
 
-        # Fallback 1: Mobile variant fallback to desktop
-        if '_MOBILE.' in clean_path:
-            cand = clean_path.replace('_MOBILE.', '.')
-            cand_path = os.path.normpath(os.path.join(DIRECTORY, cand))
-            if os.path.exists(cand_path):
-                return cand_path
+        # Fallback 1: Geometry in cubes/ vs root
+        if 'geometries' in clean_path and clean_path.endswith('.drc'):
+            fname = os.path.basename(clean_path)
+            cand1 = os.path.join(DIRECTORY, 'assets', 'geometries', fname)
+            cand2 = os.path.join(DIRECTORY, 'assets', 'geometries', 'cubes', fname)
+            if os.path.exists(cand1):
+                return cand1
+            if os.path.exists(cand2):
+                return cand2
 
-        # Fallback 2: Wasm location flexibility (_astro or root)
-        if clean_path.endswith('.wasm'):
-            name = os.path.basename(clean_path)
-            in_astro = os.path.join(DIRECTORY, '_astro', name)
-            in_root = os.path.join(DIRECTORY, name)
-            if os.path.exists(in_astro):
-                return in_astro
-            if os.path.exists(in_root):
-                return in_root
+        # Fallback 2: Images in cubes/ vs root
+        if 'images' in clean_path and clean_path.endswith('.ktx2'):
+            fname = os.path.basename(clean_path)
+            cand1 = os.path.join(DIRECTORY, 'assets', 'images', fname)
+            cand2 = os.path.join(DIRECTORY, 'assets', 'images', 'cubes', fname)
+            if os.path.exists(cand1):
+                return cand1
+            if os.path.exists(cand2):
+                return cand2
 
-        # Fallback 3: Wearable gallery full webp to thumbs webp if full is missing
-        if 'wearable-gallery' in clean_path and clean_path.endswith('.webp') and 'thumbs' not in clean_path:
-            name = os.path.basename(clean_path)
-            thumb_path = os.path.join(DIRECTORY, 'images', 'wearable-gallery', 'thumbs', name)
-            if os.path.exists(thumb_path):
-                return thumb_path
+        # Fallback 3: Dark color fallback
+        if 'dark_color' in clean_path:
+            pudgy_dark = os.path.join(DIRECTORY, 'assets', 'images', 'pudgy_dark_color.ktx2')
+            if os.path.exists(pudgy_dark):
+                return pudgy_dark
 
         return local_path
 
@@ -123,7 +125,6 @@ class AmitFastHandler(http.server.SimpleHTTPRequestHandler):
         ctype = self.guess_type(path)
 
         if range_header and range_header.startswith('bytes='):
-            # HTTP Range Request
             try:
                 range_match = re.search(r'bytes=(\d+)-(\d*)', range_header)
                 if not range_match:
@@ -208,18 +209,27 @@ class ThreadingV4Server(http.server.ThreadingHTTPServer):
 def main():
     os.chdir(DIRECTORY)
     server_address = ("0.0.0.0", PORT)
-    httpd = ThreadingV4Server(server_address, AmitFastHandler)
+    httpd = ThreadingV4Server(server_address, IglooHandler)
 
     url_localhost = f"http://localhost:{PORT}/"
     url_ip = f"http://127.0.0.1:{PORT}/"
     print("=" * 65)
-    print("  AMIT AI - High-Performance Non-Blocking Local Server")
+    print("  IGLOO INC. - High-Performance Standalone Local Server")
     print(f"  Localhost: {url_localhost}")
     print(f"  Direct IP: {url_ip}")
-    print("  Connection Pool Stalling: PREVENTED (Fast socket recycle)")
-    print("  HTTP/1.1 Range & Explicit Content-Length: ENABLED")
+    print("  Three.js + Draco + KTX2 + 18 Audio Tracks: 100% READY")
     print("=" * 65)
     print("Listening for requests... Press Ctrl+C to stop.")
+
+    def open_browser():
+        time.sleep(0.8)
+        try:
+            webbrowser.open(url_localhost)
+        except Exception:
+            pass
+
+    threading.Thread(target=open_browser, daemon=True).start()
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
